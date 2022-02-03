@@ -239,26 +239,30 @@ class OpenIDConnectClient
      */
     private $codeChallengeMethod = false;
 
-    /**
+    /**c
      * @var array holds PKCE supported algorithms
      */
     private $pkceAlgs = array('S256' => 'sha256', 'plain' => false);
 
     /**
-     * @param $provider_url string optional
+     * @param string|null $provider_url optional
      *
-     * @param $client_id string optional
-     * @param $client_secret string optional
-     * @param null $issuer
+     * @param string|null $client_id optional
+     * @param string|null $client_secret optional
+     * @param string|null $issuer optional
+     * @param string|null $well_known_url optional
      */
-    public function __construct($provider_url = null, $client_id = null, $client_secret = null, $issuer = null)
+    public function __construct(string $provider_url = null, string $client_id = null, string $client_secret = null, string $issuer = null, string $well_known_url = null)
     {
         $this->setProviderURL($provider_url);
+
         if ($issuer === null) {
             $this->setIssuer($provider_url);
         } else {
             $this->setIssuer($issuer);
         }
+
+        $this->setWellKnownURL($well_known_url);
 
         $this->clientID = $client_id;
         $this->clientSecret = $client_secret;
@@ -274,6 +278,15 @@ class OpenIDConnectClient
     public function setProviderURL($provider_url)
     {
         $this->providerConfig['providerUrl'] = $provider_url;
+    }
+
+    /**
+     * @param $well_known_url
+     * @return void
+     */
+    public function setWellKnownURL($well_known_url)
+    {
+        $this->providerConfig['wellKnownUrl'] = $well_known_url;
     }
 
     /**
@@ -298,7 +311,6 @@ class OpenIDConnectClient
      */
     public function authenticate()
     {
-
         // Do a preemptive check to see if the provider has thrown an error from a previous redirect
         if (isset($_REQUEST['error'])) {
             $desc = isset($_REQUEST['error_description']) ? ' Description: ' . $_REQUEST['error_description'] : '';
@@ -319,6 +331,9 @@ class OpenIDConnectClient
                 throw new OpenIDConnectClientException('Got response: ' . $token_json->error);
             }
 
+            // State essentially acts as a session key for OIDC
+            $state = $this->setState($_REQUEST['state']);
+
             // Do an OpenID Connect session check
             if ($_REQUEST['state'] !== $this->getState()) {
                 throw new OpenIDConnectClientException('Unable to determine state');
@@ -332,6 +347,10 @@ class OpenIDConnectClient
             }
 
             $claims = $this->decodeJWT($token_json->id_token, 1);
+
+            // Generate and store a nonce in the session
+            // The nonce is an arbitrary value
+            $nonce = $this->setNonce($claims->nonce);
 
             // Verify the signature
             if ($this->canVerifySignatures()) {
@@ -503,7 +522,7 @@ class OpenIDConnectClient
      *
      * @param string $param
      * @param string $default optional
-     * @return string
+     * @return array
      *
      * @throws OpenIDConnectClientException
      */
@@ -523,18 +542,17 @@ class OpenIDConnectClient
      * Get's anything that we need configuration wise including endpoints, and other values
      *
      * @param string $param
-     * @param string $default optional
+     * @param string|null $default optional
      * @return string
      *
      * @throws OpenIDConnectClientException
      */
-    private function getWellKnownConfigValue($param, $default = null)
+    private function getWellKnownConfigValue(string $param, string $default = null): string
     {
-
         // If the configuration value is not available, attempt to fetch it from a well known config endpoint
         // This is also known as auto "discovery"
         if (!$this->wellKnown) {
-            $well_known_config_url = rtrim($this->getProviderURL(), '/') . '/.well-known/openid-configuration';
+            $well_known_config_url = rtrim($this->getWellKnownURL(), '/') . '/.well-known/openid-configuration';
             if (count($this->wellKnownConfigParameters) > 0) {
                 $well_known_config_url .= '?' . http_build_query($this->wellKnownConfigParameters);
             }
@@ -1321,6 +1339,19 @@ class OpenIDConnectClient
         }
 
         return $this->providerConfig['providerUrl'];
+    }
+
+    /**
+     * @return mixed
+     * @throws \Jumbojett\OpenIDConnectClientException
+     */
+    public function getWellKnownURL()
+    {
+        if (!isset($this->providerConfig['wellKnownUrl'])) {
+            throw new OpenIDConnectClientException('The well known URL has not been set');
+        }
+
+        return $this->providerConfig['wellKnownUrl'];
     }
 
     /**
