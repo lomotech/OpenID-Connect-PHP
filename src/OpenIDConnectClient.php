@@ -255,14 +255,8 @@ class OpenIDConnectClient
     public function __construct(string $provider_url = null, string $client_id = null, string $client_secret = null, string $issuer = null, string $well_known_url = null)
     {
         $this->setProviderURL($provider_url);
-
-        if ($issuer === null) {
-            $this->setIssuer($provider_url);
-        } else {
-            $this->setIssuer($issuer);
-        }
-
-        $this->setWellKnownURL($well_known_url);
+        $this->setIssuer($issuer ?: $provider_url);
+        $this->setWellKnownURL($well_known_url ?: $provider_url);
 
         $this->clientID = $client_id;
         $this->clientSecret = $client_secret;
@@ -331,8 +325,11 @@ class OpenIDConnectClient
                 throw new OpenIDConnectClientException('Got response: ' . $token_json->error);
             }
 
-            // State essentially acts as a session key for OIDC
-            $state = $this->setState($_REQUEST['state']);
+            // store state
+            $this->setState($_REQUEST['state']);
+
+
+            // no idea why need to check the session and then clean up
 
             // Do an OpenID Connect session check
             if ($_REQUEST['state'] !== $this->getState()) {
@@ -348,9 +345,8 @@ class OpenIDConnectClient
 
             $claims = $this->decodeJWT($token_json->id_token, 1);
 
-            // Generate and store a nonce in the session
-            // The nonce is an arbitrary value
-            $nonce = $this->setNonce($claims->nonce);
+            // store nonce that come with claims data.
+            $this->setNonce($claims->nonce);
 
             // Verify the signature
             if ($this->canVerifySignatures()) {
